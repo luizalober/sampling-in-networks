@@ -7,7 +7,7 @@ import scipy.spatial.distance as sp_dist
 #from scipy.sparse.linalg import eigsh
 
 
-#Can't run this. Resistance distance scales extremely badly with N
+#Can't run this. Resistance distance scales badly with N
 
 #def get_resistance_and_spectral_distances(graph, *args, **kwargs):
     #Only one laplacian calculation (O(N³))

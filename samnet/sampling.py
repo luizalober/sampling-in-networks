@@ -43,60 +43,81 @@ def snowball(G, n, seeds=1, *args, **kwargs):
     return nx.Graph(edgelist)
 
 
-def RWS(G, n, r=0, *args, **kwargs):
+def RWS(G, n, r=0, max_steps=1000000, *args, **kwargs):
     """
-    Random Walk Sampling (RWS) with random restart probability 'r'.
+    Random Walk Sampling (RWS) with pre-cached neighbor lookup and edge deduplication.
     """
     if n >= len(G):
         return G.copy()
 
-    nodes = list(G.nodes())
-    start_node = rd.choice(nodes)
+    valid_components = [c for c in nx.connected_components(G) if len(c) >= n]
+    if not valid_components:
+        valid_components = [max(nx.connected_components(G), key=len)]
+
+    chosen_component = rd.choice(valid_components)
+    start_node = rd.choice(list(chosen_component))
+
+    #Pre-cache neighbor lists to avoid allocation overhead in loop
+    adj = {node: list(G.neighbors(node)) for node in G.nodes()}
 
     current = start_node
     visited = {current}
-    edgelist = []
+    visited_edges = set()
+    steps = 0
 
-    while len(visited) < n:
-        neighbors = list(G.neighbors(current))
+    while len(visited) < n and steps < max_steps:
+        steps += 1
+        neighbors = adj[current]
         if not neighbors:
             break
 
         next_node = rd.choice(neighbors)
-        edgelist.append((current, next_node))
+        edge = (current, next_node) if current < next_node else (next_node, current)
+        visited_edges.add(edge)
         visited.add(next_node)
 
-        # Rewinding probability step
         if rd.random() < r:
             current = start_node
         else:
             current = next_node
 
-    return nx.Graph(edgelist)
+    sampled_graph = nx.Graph()
+    sampled_graph.add_nodes_from(visited)
+    sampled_graph.add_edges_from(visited_edges)
+    return sampled_graph
 
 
-def IRWS(G, n, r=0, *args, **kwargs):
+def IRWS(G, n, r=0, max_steps=1000000, *args, **kwargs):
     """
     Induced Random Walk Sampling (IRWS).
     """
     if n >= len(G):
         return G.copy()
 
-    nodes = list(G.nodes())
-    start_node = rd.choice(nodes)
+    #Filter components that can hold at least n nodes to prevent infinite loops
+    valid_components = [c for c in nx.connected_components(G) if len(c) >= n]
+    if not valid_components:
+        valid_components = [max(nx.connected_components(G), key=len)]
+
+    chosen_component = rd.choice(valid_components)
+    start_node = rd.choice(list(chosen_component))
+
+    #Pre-cache neighbor lists
+    adj = {node: list(G.neighbors(node)) for node in G.nodes()}
 
     current = start_node
     visited = {current}
+    steps = 0
 
-    while len(visited) < n:
-        neighbors = list(G.neighbors(current))
+    while len(visited) < n and steps < max_steps:
+        steps += 1
+        neighbors = adj[current]
         if not neighbors:
             break
 
         next_node = rd.choice(neighbors)
         visited.add(next_node)
 
-        # Rewinding probability step
         if rd.random() < r:
             current = start_node
         else:
@@ -131,17 +152,17 @@ def traceroute(G, n, *args, **kwargs):
 
     sampled_graph = nx.Graph(edgelist)
 
-    # Ensure connectivity by retaining/extending the largest connected component
+    #Ensure connectivity by retaining the largest connected component
     if not nx.is_connected(sampled_graph):
         largest_cc = max(nx.connected_components(sampled_graph), key=len)
         S = sampled_graph.subgraph(largest_cc).copy()
 
         s_nodes = set(S.nodes())
-        notin_s_nodes = list(set(nodes) - s_nodes)
+        not_in_s_nodes = list(set(nodes) - s_nodes)
 
-        while len(S) < n and notin_s_nodes:
+        while len(S) < n and not_in_s_nodes:
             source = rd.choice(list(s_nodes))
-            target = rd.choice(notin_s_nodes)
+            target = rd.choice(not_in_s_nodes)
 
             try:
                 path = nx.shortest_path(G, source, target)
@@ -151,7 +172,7 @@ def traceroute(G, n, *args, **kwargs):
                     s_nodes.add(v)
                     if len(S) >= n:
                         break
-                notin_s_nodes = [node for node in notin_s_nodes if node not in s_nodes]
+                not_in_s_nodes = [node for node in not_in_s_nodes if node not in s_nodes]
             except nx.NetworkXNoPath:
                 continue
 
@@ -162,35 +183,47 @@ def traceroute(G, n, *args, **kwargs):
 
 def MHRW(G, n, tol=100000, *args, **kwargs):
     """
-    Metropolis-Hastings Random Walk (MHRW) sampler.
+    Metropolis-Hastings Random Walk (MHRW) sampler with pre-cached neighbor lookup.
     """
     if n >= len(G):
         return G.copy()
 
-    nodes = list(G.nodes())
-    current = rd.choice(nodes)
+    valid_components = [c for c in nx.connected_components(G) if len(c) >= n]
+    if not valid_components:
+        valid_components = [max(nx.connected_components(G), key=len)]
+
+    chosen_component = rd.choice(valid_components)
+    current = rd.choice(list(chosen_component))
+
+    #Pre-cache neighbor lists and degrees
+    adj = {node: list(G.neighbors(node)) for node in G.nodes()}
+    degrees = dict(G.degree())
 
     visited = {current}
-    edgelist = []
+    visited_edges = set()
     control = 0
 
     while len(visited) < n and control < tol:
         control += 1
-        neighbors = list(G.neighbors(current))
+        neighbors = adj[current]
         if not neighbors:
             break
 
         next_node = rd.choice(neighbors)
-        kc = G.degree[current]
-        kn = G.degree[next_node]
+        kc = degrees[current]
+        kn = degrees[next_node]
 
-        # Acceptance probability
         if rd.random() <= min(1.0, kc / kn):
-            edgelist.append((current, next_node))
+            edge = (current, next_node) if current < next_node else (next_node, current)
+            visited_edges.add(edge)
             visited.add(next_node)
             current = next_node
 
-    return nx.Graph(edgelist)
+    sampled_graph = nx.Graph()
+    sampled_graph.add_nodes_from(visited)
+    sampled_graph.add_edges_from(visited_edges)
+    return sampled_graph
+
 
 def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
     """
@@ -201,7 +234,6 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
     if n >= num_nodes:
         return G.copy()
 
-    #Filter for components that can hold at least n nodes
     valid_components = [
         c for c in nx.connected_components(G) if len(c) >= n
     ]
@@ -219,7 +251,6 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
         queue = deque([seed])
 
         while len(visited) < n:
-            #Boundary re-ignition if queue dies out
             if not queue:
                 boundary = set()
                 for node in visited:
@@ -227,7 +258,7 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
                 boundary -= visited
 
                 if not boundary:
-                    break  #Component exhausted
+                    break
 
                 new_seed = rd.choice(list(boundary))
                 visited.add(new_seed)
@@ -238,12 +269,10 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
 
             curr_node = queue.popleft()
 
-            #Get unvisited neighbors for undirected graph
             candidates = [nbr for nbr in G.neighbors(curr_node) if nbr not in visited]
             if not candidates:
                 continue
 
-            #Sample x from Geometric distribution
             x = np.random.geometric(geo_param)
             remaining_needed = n - len(visited)
             num_to_sample = min(x, len(candidates), remaining_needed)
@@ -251,7 +280,6 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
             if num_to_sample == 0:
                 continue
 
-            #Uniform random selection among unvisited neighbors
             selected_neighbors = rd.sample(candidates, k=num_to_sample)
 
             for neighbor in selected_neighbors:
@@ -265,28 +293,26 @@ def forest_fire_sampling(G, n, p=0.5, max_restarts=100, *args, **kwargs):
 
     raise RuntimeError("Failed to sample a connected component within max_restarts.")
 
+
 def frontier_sampling(G, n, m=1, *args, **kwargs):
     """
-    Frontier Sampling tuned to return a connected subgraph with n nodes.
+    Frontier Sampling modified to return a connected subgraph with n nodes.
     """
-    #Select the largest connected component
     target_component = max(nx.connected_components(G), key=len)
 
     effective_N = min(n, len(target_component))
     if effective_N <= 1:
-        root = rd.choice(list(target_component))
-        return G.subgraph([root]).copy()
+        L = rd.choice(list(target_component))
+        return G.subgraph([L]).copy()
 
-    #Root initialization preserves graph connectivity
     root = rd.choice(list(target_component))
-    L = [root] * m
-    sampled_nodes = {root}
+    L = [rd.choice(list(target_component)) for _ in range(m)]
+    sampled_nodes = set(L)
 
     while len(sampled_nodes) < effective_N:
         degrees = [G.degree(node) for node in L]
         total_degree = sum(degrees)
 
-        #Handle stuck walkers by resetting them to a random sampled node
         if total_degree == 0:
             L = rd.choices(list(sampled_nodes), k=m)
             continue
