@@ -1,11 +1,11 @@
 # sampling-in-networks
 
-Code for the article "Sampling in complex networks".
+Code for the article "Network sampling: a comparative review".
 
-Preprint available at []
+Preprint available at http://arxiv.org/abs/2611.18736
 
 
-Luiza Lober `∗`, Matheus C. Victal and Francisco A. Rodrigues
+Luiza Lober `∗`, Matheus V. Cerqueira and Francisco A. Rodrigues
 
 
 
